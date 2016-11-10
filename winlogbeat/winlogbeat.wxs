@@ -1,0 +1,41 @@
+﻿<?xml version="1.0"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+	<Product Id="*" UpgradeCode="32465BE9-7888-468E-9FC7-B1CC2908E5B2" Name="Winlogbeat" Version="$(var.version)" Manufacturer="Elastic" Language="1033">
+		<Package InstallerVersion="200" Comments="Windows Installer for Winlogbeat" />
+		<Media Id="1" />
+		<Directory Id="TARGETDIR" Name="SourceDir">
+			<Directory Id="ProgramFilesFolder">
+				<Directory Id="INSTALLFOLDER" Name="Elastic">
+					<Directory Id="APPLICATIONFOLDER" Name="Winlogbeat">
+						<Component Id="WinlogbeatExe" Guid="C5ADA95B-0EF3-44D9-968C-FE08B812E003">
+							<File Id="WinlogbeatExe" Name="winlogbeat.exe" Source="winlogbeat.exe" />
+							<ServiceInstall Id="ServiceInstaller"
+							 Type="ownProcess"
+							 Name="Winlogbeat"
+							 DisplayName="Winlogbeat"
+							 Description="Service for Winlogbeat"
+							 Start="auto"
+							 Arguments="-c '[APPLICATIONFOLDER]winlogbeat.yml' -path.home '[APPLICATIONFOLDER]' -path.data 'C:\ProgramData\Winlogbeat'"
+							 ErrorControl="normal"
+							 Vital="yes" />
+							<ServiceControl Id="StartService" Stop="both" Remove="uninstall" Name="Winlogbeat" Wait="yes" />
+						</Component>
+						<Component Id="WinlogbeatYml" Guid="7B0FCAA5-9ADE-46FB-AFDA-75619B5C0EF7">
+							<File Id="WinlogbeatYml" Name="winlogbeat.yml" Source="winlogbeat.yml" />
+						</Component>
+					</Directory>
+				</Directory>
+			</Directory>
+		</Directory>
+		<Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER" />
+		<Feature Id="DefaultFeature" Level="1">
+			<ComponentRef Id="WinlogbeatExe" />
+			<ComponentRef Id="WinlogbeatYml" />
+		</Feature>
+		<MajorUpgrade DowngradeErrorMessage="A later version of Winlogbeat is already installed. Setup will now exit.">
+		</MajorUpgrade>
+		<UI>
+			<UIRef Id="WixUI_InstallDir" />
+		</UI>
+	</Product>
+</Wix>

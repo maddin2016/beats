@@ -11,6 +11,10 @@
 /beats.iml
 *.dev.yml
 *.generated.yml
+launch.json
+*.wixobj
+*.wixpdb
+*.msi
 
 # Editor swap files
 *.swp
