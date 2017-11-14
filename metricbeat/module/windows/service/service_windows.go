@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unicode/utf16"
@@ -53,6 +54,8 @@ var serviceStartTypes = map[ServiceStartType]string{
 	ServiceDisabled:    "ServiceDisabled",
 	ServiceSystemStart: "ServiceSystemStart",
 }
+
+var protectedServices = make(map[string]struct{})
 
 func (state ServiceState) String() string {
 	if val, ok := serviceStates[state]; ok {
@@ -204,7 +207,11 @@ func getServiceInformation(rawService *EnumServiceStatusProcess, servicesBuffer 
 	if ServiceState(rawService.ServiceStatusProcess.DwCurrentState) != ServiceStopped {
 		processUpTime, err := getServiceUptime(rawService.ServiceStatusProcess.DwProcessId)
 		if err != nil {
-			logp.Warn("Uptime for service %v is not available", service.ServiceName)
+			s := strings.ToLower(service.ServiceName)
+			if _, ok := protectedServices[s]; !ok {
+				protectedServices[s] = struct{}{}
+				logp.Warn("Uptime for service %v is not available", service.ServiceName)
+			}
 		}
 		service.Uptime = processUpTime / time.Millisecond
 	}
