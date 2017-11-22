@@ -225,7 +225,7 @@ func TestRawValues(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, rawvalue1, err := PdhGetRawCounterValue(query.counters[processorTimeCounter].handle)
+		_, rawvalue1, err := PdhGetRawCounterValue(query.Counters[processorTimeCounter].handle)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,12 +236,12 @@ func TestRawValues(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, rawvalue2, err := PdhGetRawCounterValue(query.counters[processorTimeCounter].handle)
+		_, rawvalue2, err := PdhGetRawCounterValue(query.Counters[processorTimeCounter].handle)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		value, err := PdhCalculateCounterFromRawValue(query.counters[processorTimeCounter].handle, PdhFmtDouble|PdhFmtNoCap100, rawvalue2, rawvalue1)
+		value, err := PdhCalculateCounterFromRawValue(query.Counters[processorTimeCounter].handle, PdhFmtDouble|PdhFmtNoCap100, rawvalue2, rawvalue1)
 		if err != nil {
 			t.Fatal(err)
 		}

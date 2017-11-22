@@ -183,17 +183,17 @@ func PdhCloseQuery(query PdhQueryHandle) error {
 }
 
 type Counter struct {
-	handle       PdhCounterHandle
-	format       PdhCounterFormat
-	instanceName string
-	wildcard     bool // wildcard indicates that the path contains a wildcard.
+	Handle       PdhCounterHandle
+	Format       PdhCounterFormat
+	InstanceName string
+	Wildcard     bool // wildcard indicates that the path contains a wildcard.
 }
 
-type Counters map[string]*Counter
+type PdhCounters map[string]*Counter
 
 type Query struct {
-	handle   PdhQueryHandle
-	counters Counters
+	Handle   PdhQueryHandle
+	Counters PdhCounters
 }
 
 type Format int
@@ -210,17 +210,17 @@ func NewQuery(dataSource string) (*Query, error) {
 	}
 
 	return &Query{
-		handle:   h,
-		counters: make(Counters),
+		Handle:   h,
+		Counters: make(PdhCounters),
 	}, nil
 }
 
 func (q *Query) AddCounter(counterPath string, format Format, instanceName string) error {
-	if _, found := q.counters[counterPath]; found {
+	if _, found := q.Counters[counterPath]; found {
 		return errors.New("counter already added")
 	}
 
-	h, err := PdhAddCounter(q.handle, counterPath, 0)
+	h, err := PdhAddCounter(q.Handle, counterPath, 0)
 	if err != nil {
 		return errors.Wrapf(err, `failed to add counter (path="%v")`, counterPath)
 	}
@@ -236,22 +236,22 @@ func (q *Query) AddCounter(counterPath string, format Format, instanceName strin
 		instanceName = matches[1]
 	}
 
-	q.counters[counterPath] = &Counter{
-		handle:       h,
-		instanceName: instanceName,
-		wildcard:     wildcard,
+	q.Counters[counterPath] = &Counter{
+		Handle:       h,
+		InstanceName: instanceName,
+		Wildcard:     wildcard,
 	}
 	switch format {
 	case FloatFlormat:
-		q.counters[counterPath].format = PdhFmtDouble
+		q.Counters[counterPath].Format = PdhFmtDouble
 	case LongFormat:
-		q.counters[counterPath].format = PdhFmtLarge
+		q.Counters[counterPath].Format = PdhFmtLarge
 	}
 	return nil
 }
 
 func (q *Query) Execute() error {
-	return PdhCollectQueryData(q.handle)
+	return PdhCollectQueryData(q.Handle)
 }
 
 type Value struct {
@@ -261,11 +261,11 @@ type Value struct {
 }
 
 func (q *Query) Values() (map[string][]Value, error) {
-	rtn := make(map[string][]Value, len(q.counters))
+	rtn := make(map[string][]Value, len(q.Counters))
 
-	for path, counter := range q.counters {
-		if counter.wildcard {
-			values, err := PdhGetFormattedCounterArray(counter.handle, counter.format|PdhFmtNoCap100)
+	for path, counter := range q.Counters {
+		if counter.Wildcard {
+			values, err := PdhGetFormattedCounterArray(counter.Handle, counter.Format|PdhFmtNoCap100)
 			if err != nil {
 				rtn[path] = append(rtn[path], Value{Err: err})
 				continue
@@ -274,7 +274,7 @@ func (q *Query) Values() (map[string][]Value, error) {
 			for i := 0; i < len(values); i++ {
 				var val interface{}
 
-				switch counter.format {
+				switch counter.Format {
 				case PdhFmtDouble:
 					val = *(*float64)(unsafe.Pointer(&values[i].Value.LongValue))
 				case PdhFmtLarge:
@@ -284,17 +284,17 @@ func (q *Query) Values() (map[string][]Value, error) {
 				rtn[path] = append(rtn[path], Value{Instance: values[i].Name, Measurement: val})
 			}
 		} else {
-			_, value, err := PdhGetFormattedCounterValue(counter.handle, counter.format|PdhFmtNoCap100)
+			_, value, err := PdhGetFormattedCounterValue(counter.Handle, counter.Format|PdhFmtNoCap100)
 			if err != nil {
 				rtn[path] = append(rtn[path], Value{Err: err})
 				continue
 			}
 
-			switch counter.format {
+			switch counter.Format {
 			case PdhFmtDouble:
-				rtn[path] = append(rtn[path], Value{Measurement: *(*float64)(unsafe.Pointer(&value.LongValue)), Instance: counter.instanceName})
+				rtn[path] = append(rtn[path], Value{Measurement: *(*float64)(unsafe.Pointer(&value.LongValue)), Instance: counter.InstanceName})
 			case PdhFmtLarge:
-				rtn[path] = append(rtn[path], Value{Measurement: *(*int64)(unsafe.Pointer(&value.LongValue)), Instance: counter.instanceName})
+				rtn[path] = append(rtn[path], Value{Measurement: *(*int64)(unsafe.Pointer(&value.LongValue)), Instance: counter.InstanceName})
 			}
 		}
 	}
@@ -304,7 +304,7 @@ func (q *Query) Values() (map[string][]Value, error) {
 
 // Closes the query and all of its counters.
 func (q *Query) Close() error {
-	return PdhCloseQuery(q.handle)
+	return PdhCloseQuery(q.Handle)
 }
 
 type PerfmonReader struct {

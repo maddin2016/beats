@@ -1,11 +1,14 @@
-// +build darwin,cgo freebsd linux
+// +build windows
 
 package diskio
 
 import (
+	"unsafe"
+
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/metricbeat/mb"
 	"github.com/elastic/beats/metricbeat/mb/parse"
+	"github.com/elastic/beats/metricbeat/module/windows/perfmon"
 
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/disk"
@@ -20,7 +23,9 @@ func init() {
 // MetricSet for fetching system disk IO metrics.
 type MetricSet struct {
 	mb.BaseMetricSet
-	statistics *DiskIOStat
+	statistics  *DiskIOStat
+	oldRawValue *perfmon.PdhRawCounter
+	executed    bool
 }
 
 // New is a mb.MetricSetFactory that returns a new MetricSet.
@@ -34,6 +39,52 @@ func New(base mb.BaseMetricSet) (mb.MetricSet, error) {
 
 // Fetch fetches disk IO metrics from the OS.
 func (m *MetricSet) Fetch() ([]common.MapStr, error) {
+	query, err := perfmon.NewQuery("")
+	if err != nil {
+		return nil, err
+	}
+	defer query.Close()
+
+	err = query.AddCounter("\\LogicalDisk(C:)\\Disk Write Bytes/sec", perfmon.FloatFlormat, "")
+	if err != nil && err != perfmon.PDH_NO_MORE_DATA {
+		return nil, err
+	}
+
+	if err = query.Execute(); err != nil {
+		return nil, err
+	}
+
+	_, actualRawValue, err := perfmon.PdhGetRawCounterValue(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle)
+	if err != nil {
+		return nil, err
+	}
+
+	value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, actualRawValue, m.oldRawValue)
+
+	if err != nil {
+		switch err {
+		case perfmon.PDH_CALC_NEGATIVE_DENOMINATOR:
+		case perfmon.PDH_INVALID_DATA:
+			if m.executed {
+				return nil, err
+			}
+		default:
+			return nil, err
+		}
+	}
+
+	if !m.executed {
+		m.executed = true
+	}
+
+	m.oldRawValue = actualRawValue
+
+	if err != nil {
+		return nil, err
+	}
+
+	//values = append(values, *(*float64)(unsafe.Pointer(&value.LongValue)))
+
 	stats, err := disk.IOCounters()
 	if err != nil {
 		return nil, errors.Wrap(err, "disk io counters")
@@ -48,7 +99,7 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 		event := common.MapStr{
 			"name": counters.Name,
 			"read": common.MapStr{
-				"count": counters.ReadCount,
+				"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
 				"time":  counters.ReadTime,
 				"bytes": counters.ReadBytes,
 			},
