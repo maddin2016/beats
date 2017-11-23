@@ -25,13 +25,14 @@ import (
 //sys _PdhGetFormattedCounterValue(counter PdhCounterHandle, format PdhCounterFormat, counterType *uint32, value *PdhCounterValue) (errcode error) [failretval!=0] = pdh.PdhGetFormattedCounterValue
 //sys _PdhGetFormattedCounterArray(counter PdhCounterHandle, format PdhCounterFormat, bufferSize *uint32, bufferCount *uint32, itemBuffer *byte) (errcode error) [failretval!=0] = pdh.PdhGetFormattedCounterArrayW
 //sys _PdhGetRawCounterValue(counter PdhCounterHandle, counterType *uint32, value *PdhRawCounter) (errcode error) [failretval!=0] = pdh.PdhGetRawCounterValue
-//sys _PdhGetRawCounterArray(counter PdhCounterHandle, bufferSize *uint32, bufferCount *uint32, itemBuffer *pdhRawCounterItem) (errcode error) [failretval!=0] = pdh.PdhGetRawCounterArray
+//sys _PdhGetRawCounterArray(counter PdhCounterHandle, bufferSize *uint32, bufferCount *uint32, itemBuffer *byte) (errcode error) [failretval!=0] = pdh.PdhGetRawCounterArrayW
 //sys _PdhCalculateCounterFromRawValue(counter PdhCounterHandle, format PdhCounterFormat, rawValue1 *PdhRawCounter, rawValue2 *PdhRawCounter, value *PdhCounterValue) (errcode error) [failretval!=0] = pdh.PdhCalculateCounterFromRawValue
 //sys _PdhFormatFromRawValue(counterType uint32, format PdhCounterFormat, timeBase *uint64, rawValue1 *PdhRawCounter, rawValue2 *PdhRawCounter, value *PdhCounterValue) (errcode error) [failretval!=0] = pdh.PdhFormatFromRawValue
 //sys _PdhCloseQuery(query PdhQueryHandle) (errcode error) [failretval!=0] = pdh.PdhCloseQuery
 
 var (
 	sizeofPdhCounterValueItem = (int)(unsafe.Sizeof(pdhCounterValueItem{}))
+	sizeofPdhRawCounterItem   = (int)(unsafe.Sizeof(pdhRawCounterItem{}))
 	wildcardRegexp            = regexp.MustCompile(`.*\(\*\).*`)
 	instanceNameRegexp        = regexp.MustCompile(`.*\((.*)\).*`)
 )
@@ -52,6 +53,11 @@ type pdhCounterValueItem struct {
 type pdhRawCounterItem struct {
 	SzName   uintptr
 	RawValue PdhRawCounter
+}
+
+type RawCounterItem struct {
+	Name  string
+	Value PdhRawCounter
 }
 
 type CounterValueItem struct {
@@ -152,6 +158,46 @@ func PdhGetRawCounterValue(counter PdhCounterHandle) (uint32, *PdhRawCounter, er
 	}
 
 	return counterType, &value, nil
+}
+
+func PdhGetRawCounterArray(counter PdhCounterHandle) ([]RawCounterItem, error) {
+	var bufferSize uint32
+	var bufferCount uint32
+
+	if err := _PdhGetRawCounterArray(counter, &bufferSize, &bufferCount, nil); err != nil {
+		// From MSDN: You should call this function twice, the first time to get the required
+		// buffer size (set ItemBuffer to NULL and lpdwBufferSize to 0), and the second time to get the data.
+		if PdhErrno(err.(syscall.Errno)) != PDH_MORE_DATA {
+			return nil, PdhErrno(err.(syscall.Errno))
+		}
+
+		// Buffer holds PdhCounterValueItems at the beginning and then null-terminated
+		// strings at the end.
+		buffer := make([]byte, bufferSize)
+		if err := _PdhGetRawCounterArray(counter, &bufferSize, &bufferCount, &buffer[0]); err != nil {
+			return nil, PdhErrno(err.(syscall.Errno))
+		}
+
+		values := make([]RawCounterItem, bufferCount)
+		nameBuffer := new(bytes.Buffer)
+		for i := 0; i < len(values); i++ {
+			pdhRawCounterItem := (*pdhRawCounterItem)(unsafe.Pointer(&buffer[i*sizeofPdhRawCounterItem]))
+
+			// The strings are appended to the end of the buffer.
+			nameOffset := pdhRawCounterItem.SzName - (uintptr)(unsafe.Pointer(&buffer[0]))
+			nameBuffer.Reset()
+			if err := sys.UTF16ToUTF8Bytes(buffer[nameOffset:], nameBuffer); err != nil {
+				return nil, err
+			}
+
+			values[i].Name = nameBuffer.String()
+			values[i].Value = pdhRawCounterItem.RawValue
+		}
+
+		return values, nil
+	}
+
+	return nil, nil
 }
 
 func PdhCalculateCounterFromRawValue(counter PdhCounterHandle, format PdhCounterFormat, rawValue1 *PdhRawCounter, rawValue2 *PdhRawCounter) (*PdhCounterValue, error) {

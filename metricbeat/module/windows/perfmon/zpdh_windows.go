@@ -45,7 +45,7 @@ var (
 	procPdhGetFormattedCounterValue     = modpdh.NewProc("PdhGetFormattedCounterValue")
 	procPdhGetFormattedCounterArrayW    = modpdh.NewProc("PdhGetFormattedCounterArrayW")
 	procPdhGetRawCounterValue           = modpdh.NewProc("PdhGetRawCounterValue")
-	procPdhGetRawCounterArray           = modpdh.NewProc("PdhGetRawCounterArray")
+	procPdhGetRawCounterArrayW          = modpdh.NewProc("PdhGetRawCounterArrayW")
 	procPdhCalculateCounterFromRawValue = modpdh.NewProc("PdhCalculateCounterFromRawValue")
 	procPdhFormatFromRawValue           = modpdh.NewProc("PdhFormatFromRawValue")
 	procPdhCloseQuery                   = modpdh.NewProc("PdhCloseQuery")
@@ -108,8 +108,8 @@ func _PdhGetRawCounterValue(counter PdhCounterHandle, counterType *uint32, value
 	return
 }
 
-func _PdhGetRawCounterArray(counter PdhCounterHandle, bufferSize *uint32, bufferCount *uint32, itemBuffer *pdhRawCounterItem) (errcode error) {
-	r0, _, _ := syscall.Syscall6(procPdhGetRawCounterArray.Addr(), 4, uintptr(counter), uintptr(unsafe.Pointer(bufferSize)), uintptr(unsafe.Pointer(bufferCount)), uintptr(unsafe.Pointer(itemBuffer)), 0, 0)
+func _PdhGetRawCounterArray(counter PdhCounterHandle, bufferSize *uint32, bufferCount *uint32, itemBuffer *byte) (errcode error) {
+	r0, _, _ := syscall.Syscall6(procPdhGetRawCounterArrayW.Addr(), 4, uintptr(counter), uintptr(unsafe.Pointer(bufferSize)), uintptr(unsafe.Pointer(bufferCount)), uintptr(unsafe.Pointer(itemBuffer)), 0, 0)
 	if r0 != 0 {
 		errcode = syscall.Errno(r0)
 	}

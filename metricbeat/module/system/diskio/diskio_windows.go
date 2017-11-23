@@ -9,10 +9,12 @@ import (
 	"github.com/elastic/beats/metricbeat/mb"
 	"github.com/elastic/beats/metricbeat/mb/parse"
 	"github.com/elastic/beats/metricbeat/module/windows/perfmon"
-
-	"github.com/pkg/errors"
-	"github.com/shirou/gopsutil/disk"
 )
+
+type RawValue struct {
+	Name  string
+	Value interface{}
+}
 
 func init() {
 	if err := mb.Registry.AddMetricSet("system", "diskio", New, parse.EmptyHostParser); err != nil {
@@ -24,7 +26,7 @@ func init() {
 type MetricSet struct {
 	mb.BaseMetricSet
 	statistics  *DiskIOStat
-	oldRawValue *perfmon.PdhRawCounter
+	oldRawValue map[string]*perfmon.PdhRawCounter
 	executed    bool
 }
 
@@ -45,8 +47,8 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 	}
 	defer query.Close()
 
-	err = query.AddCounter("\\LogicalDisk(C:)\\Disk Write Bytes/sec", perfmon.FloatFlormat, "")
-	if err != nil && err != perfmon.PDH_NO_MORE_DATA {
+	err = query.AddCounter("\\LogicalDisk(*)\\Disk Write Bytes/sec", perfmon.FloatFlormat, "")
+	if err != nil {
 		return nil, err
 	}
 
@@ -54,47 +56,29 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 		return nil, err
 	}
 
-	_, actualRawValue, err := perfmon.PdhGetRawCounterValue(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle)
+	actualRawValues, err := perfmon.PdhGetRawCounterArray(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle)
 	if err != nil {
 		return nil, err
 	}
 
-	value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, actualRawValue, m.oldRawValue)
-
-	if err != nil {
-		switch err {
-		case perfmon.PDH_CALC_NEGATIVE_DENOMINATOR:
-		case perfmon.PDH_INVALID_DATA:
-			if m.executed {
-				return nil, err
-			}
-		default:
-			return nil, err
-		}
-	}
-
-	if !m.executed {
-		m.executed = true
-	}
-
-	m.oldRawValue = actualRawValue
-
-	if err != nil {
-		return nil, err
-	}
-
-	//values = append(values, *(*float64)(unsafe.Pointer(&value.LongValue)))
-
-	stats, err := disk.IOCounters()
-	if err != nil {
-		return nil, errors.Wrap(err, "disk io counters")
-	}
-
-	// open a sampling means sample the current cpu counter
-	m.statistics.OpenSampling()
+	rtn := make(map[string][]RawValue, len(actualRawValues))
 
 	events := make([]common.MapStr, 0, len(stats))
-	for _, counters := range stats {
+
+	for _, rawValue := range actualRawValues {
+		value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, &rawValue.Value, m.oldRawValue[rawValue.Name])
+
+		if err != nil {
+			switch err {
+			case perfmon.PDH_CALC_NEGATIVE_DENOMINATOR:
+			case perfmon.PDH_INVALID_DATA:
+				if m.executed {
+					return nil, err
+				}
+			default:
+				return nil, err
+			}
+		}
 
 		event := common.MapStr{
 			"name": counters.Name,
@@ -113,37 +97,34 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 			},
 		}
 
-		extraMetrics, err := m.statistics.CalIOStatistics(counters)
-		if err == nil {
-			event["iostat"] = common.MapStr{
-				"read": common.MapStr{
-					"request": common.MapStr{
-						"merges_per_sec": extraMetrics.ReadRequestMergeCountPerSec,
-						"per_sec":        extraMetrics.ReadRequestCountPerSec,
-					},
-					"per_sec": common.MapStr{
-						"bytes": extraMetrics.ReadBytesPerSec,
-					},
-				},
-				"write": common.MapStr{
-					"request": common.MapStr{
-						"merges_per_sec": extraMetrics.WriteRequestMergeCountPerSec,
-						"per_sec":        extraMetrics.WriteRequestCountPerSec,
-					},
-					"per_sec": common.MapStr{
-						"bytes": extraMetrics.WriteBytesPerSec,
-					},
-				},
-				"queue": common.MapStr{
-					"avg_size": extraMetrics.AvgQueueSize,
-				},
-				"request": common.MapStr{
-					"avg_size": extraMetrics.AvgRequestSize,
-				},
-				"await":        extraMetrics.AvgAwaitTime,
-				"service_time": extraMetrics.AvgServiceTime,
-				"busy":         extraMetrics.BusyPct,
-			}
+		events = append(events, event)
+	}
+
+	if !m.executed {
+		m.executed = true
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, counters := range stats {
+
+		event := common.MapStr{
+			"name": counters.Name,
+			"read": common.MapStr{
+				"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
+				"time":  counters.ReadTime,
+				"bytes": counters.ReadBytes,
+			},
+			"write": common.MapStr{
+				"count": counters.WriteCount,
+				"time":  counters.WriteTime,
+				"bytes": counters.WriteBytes,
+			},
+			"io": common.MapStr{
+				"time": counters.IoTime,
+			},
 		}
 
 		events = append(events, event)
