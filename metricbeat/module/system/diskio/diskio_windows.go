@@ -56,24 +56,30 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 		return nil, err
 	}
 
-	actualRawValues, err := perfmon.PdhGetRawCounterArray(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle)
+	actualRawValues, err := perfmon.PdhGetRawCounterArray(query.Counters["\\LogicalDisk(*)\\Disk Write Bytes/sec"].Handle)
 	if err != nil {
 		return nil, err
 	}
 
-	rtn := make(map[string][]RawValue, len(actualRawValues))
+	//rtn := make(map[string][]RawValue, len(actualRawValues))
 
-	events := make([]common.MapStr, 0, len(stats))
+	events := make([]common.MapStr, 0, len(actualRawValues))
 
 	for _, rawValue := range actualRawValues {
-		value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(C:)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, &rawValue.Value, m.oldRawValue[rawValue.Name])
+		// Filter _total and Harddrive
+		if len(rawValue.Name) > 3 {
+			continue
+		}
 
+		value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(*)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, &rawValue.Value, m.oldRawValue[rawValue.Name])
 		if err != nil {
 			switch err {
 			case perfmon.PDH_CALC_NEGATIVE_DENOMINATOR:
 			case perfmon.PDH_INVALID_DATA:
 				if m.executed {
 					return nil, err
+				} else {
+					break
 				}
 			default:
 				return nil, err
@@ -81,19 +87,11 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 		}
 
 		event := common.MapStr{
-			"name": counters.Name,
-			"read": common.MapStr{
-				"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
-				"time":  counters.ReadTime,
-				"bytes": counters.ReadBytes,
-			},
+			"name": rawValue.Name,
 			"write": common.MapStr{
-				"count": counters.WriteCount,
-				"time":  counters.WriteTime,
-				"bytes": counters.WriteBytes,
-			},
-			"io": common.MapStr{
-				"time": counters.IoTime,
+				"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
+				// "time":  counters.WriteTime,
+				// "bytes": counters.WriteBytes,
 			},
 		}
 
@@ -104,38 +102,34 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 		m.executed = true
 	}
 
-	if err != nil {
-		return nil, err
-	}
+	// for _, counters := range stats {
 
-	for _, counters := range stats {
+	// 	event := common.MapStr{
+	// 		"name": counters.Name,
+	// 		"read": common.MapStr{
+	// 			"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
+	// 			"time":  counters.ReadTime,
+	// 			"bytes": counters.ReadBytes,
+	// 		},
+	// 		"write": common.MapStr{
+	// 			"count": counters.WriteCount,
+	// 			"time":  counters.WriteTime,
+	// 			"bytes": counters.WriteBytes,
+	// 		},
+	// 		"io": common.MapStr{
+	// 			"time": counters.IoTime,
+	// 		},
+	// 	}
 
-		event := common.MapStr{
-			"name": counters.Name,
-			"read": common.MapStr{
-				"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
-				"time":  counters.ReadTime,
-				"bytes": counters.ReadBytes,
-			},
-			"write": common.MapStr{
-				"count": counters.WriteCount,
-				"time":  counters.WriteTime,
-				"bytes": counters.WriteBytes,
-			},
-			"io": common.MapStr{
-				"time": counters.IoTime,
-			},
-		}
+	// 	events = append(events, event)
 
-		events = append(events, event)
+	// 	if counters.SerialNumber != "" {
+	// 		event["serial_number"] = counters.SerialNumber
+	// 	}
+	// }
 
-		if counters.SerialNumber != "" {
-			event["serial_number"] = counters.SerialNumber
-		}
-	}
-
-	// open a sampling means store the last cpu counter
-	m.statistics.CloseSampling()
+	// // open a sampling means store the last cpu counter
+	// m.statistics.CloseSampling()
 
 	return events, nil
 }
