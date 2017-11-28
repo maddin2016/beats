@@ -35,6 +35,7 @@ func New(base mb.BaseMetricSet) (mb.MetricSet, error) {
 	ms := &MetricSet{
 		BaseMetricSet: base,
 		statistics:    NewDiskIOStat(),
+		oldRawValue:   make(map[string]*perfmon.PdhRawCounter),
 	}
 	return ms, nil
 }
@@ -72,14 +73,16 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 		}
 
 		value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(*)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, &rawValue.Value, m.oldRawValue[rawValue.Name])
+		m.oldRawValue[rawValue.Name] = &rawValue.Value
 		if err != nil {
 			switch err {
-			case perfmon.PDH_CALC_NEGATIVE_DENOMINATOR:
-			case perfmon.PDH_INVALID_DATA:
+			case perfmon.PDH_CALC_NEGATIVE_VALUE:
+				continue
+			case perfmon.PDH_CSTATUS_INVALID_DATA:
 				if m.executed {
 					return nil, err
 				} else {
-					break
+					continue
 				}
 			default:
 				return nil, err
