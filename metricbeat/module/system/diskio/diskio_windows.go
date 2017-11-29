@@ -16,6 +16,30 @@ type RawValue struct {
 	Value interface{}
 }
 
+type CounterType uint32
+
+const (
+	CounterTypeReadBytes CounterType = iota
+	CounterTypeReadCount
+	CounterTypeReadTime
+	CounterTypeWriteBytes
+	CounterTypeWriteCount
+	CounterTypeWriteTime
+)
+
+var counterTypes = map[CounterType]string{
+	CounterTypeReadBytes:  "read.bytes",
+	CounterTypeReadCount:  "read.count",
+	CounterTypeReadTime:   "read.time",
+	CounterTypeWriteBytes: "write.bytes",
+	CounterTypeWriteCount: "write.count",
+	CounterTypeWriteTime:  "write.time",
+}
+
+func (cType CounterType) String() string {
+	return counterTypes[cType]
+}
+
 func init() {
 	if err := mb.Registry.AddMetricSet("system", "diskio", New, parse.EmptyHostParser); err != nil {
 		panic(err)
@@ -26,7 +50,7 @@ func init() {
 type MetricSet struct {
 	mb.BaseMetricSet
 	statistics  *DiskIOStat
-	oldRawValue map[string]*perfmon.PdhRawCounter
+	oldRawValue map[string]perfmon.PdhRawCounter
 	executed    bool
 }
 
@@ -35,75 +59,20 @@ func New(base mb.BaseMetricSet) (mb.MetricSet, error) {
 	ms := &MetricSet{
 		BaseMetricSet: base,
 		statistics:    NewDiskIOStat(),
-		oldRawValue:   make(map[string]*perfmon.PdhRawCounter),
+		oldRawValue:   map[string]perfmon.PdhRawCounter{},
 	}
 	return ms, nil
 }
 
 // Fetch fetches disk IO metrics from the OS.
 func (m *MetricSet) Fetch() ([]common.MapStr, error) {
-	query, err := perfmon.NewQuery("")
-	if err != nil {
-		return nil, err
-	}
-	defer query.Close()
 
-	err = query.AddCounter("\\LogicalDisk(*)\\Disk Write Bytes/sec", perfmon.FloatFlormat, "")
+	events, err := m.Read()
 	if err != nil {
 		return nil, err
 	}
 
-	if err = query.Execute(); err != nil {
-		return nil, err
-	}
-
-	actualRawValues, err := perfmon.PdhGetRawCounterArray(query.Counters["\\LogicalDisk(*)\\Disk Write Bytes/sec"].Handle)
-	if err != nil {
-		return nil, err
-	}
-
-	//rtn := make(map[string][]RawValue, len(actualRawValues))
-
-	events := make([]common.MapStr, 0, len(actualRawValues))
-
-	for _, rawValue := range actualRawValues {
-		// Filter _total and Harddrive
-		if len(rawValue.Name) > 3 {
-			continue
-		}
-
-		value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters["\\LogicalDisk(*)\\Disk Write Bytes/sec"].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, &rawValue.Value, m.oldRawValue[rawValue.Name])
-		m.oldRawValue[rawValue.Name] = &rawValue.Value
-		if err != nil {
-			switch err {
-			case perfmon.PDH_CALC_NEGATIVE_VALUE:
-				continue
-			case perfmon.PDH_CSTATUS_INVALID_DATA:
-				if m.executed {
-					return nil, err
-				} else {
-					continue
-				}
-			default:
-				return nil, err
-			}
-		}
-
-		event := common.MapStr{
-			"name": rawValue.Name,
-			"write": common.MapStr{
-				"count": *(*float64)(unsafe.Pointer(&value.LongValue)),
-				// "time":  counters.WriteTime,
-				// "bytes": counters.WriteBytes,
-			},
-		}
-
-		events = append(events, event)
-	}
-
-	if !m.executed {
-		m.executed = true
-	}
+	return events, nil
 
 	// for _, counters := range stats {
 
@@ -133,6 +102,79 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 
 	// // open a sampling means store the last cpu counter
 	// m.statistics.CloseSampling()
+}
+
+func (m *MetricSet) Read() ([]common.MapStr, error) {
+	query, err := perfmon.NewQuery("")
+	if err != nil {
+		return nil, err
+	}
+	defer query.Close()
+
+	counters := map[string]CounterType{
+		"\\LogicalDisk(*)\\Disk Write Bytes/sec": CounterTypeWriteBytes,
+		"\\LogicalDisk(*)\\Disk Read Bytes/sec":  CounterTypeReadBytes,
+	}
+
+	for k, _ := range counters {
+		err = query.AddCounter(k, perfmon.FloatFlormat, "")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err = query.Execute(); err != nil {
+		return nil, err
+	}
+
+	events := make([]common.MapStr, 0, len(counters))
+	event := common.MapStr{}
+
+	for k, v := range counters {
+		actualRawValues, err := perfmon.PdhGetRawCounterArray(query.Counters[k].Handle)
+		if err != nil {
+			return nil, err
+		}
+
+		//rtn := make(map[string][]RawValue, len(actualRawValues))
+
+		for _, rawValue := range actualRawValues {
+			// Filter _total and Harddisk
+			if len(rawValue.Name) > 3 {
+				continue
+			}
+
+			event.Put(rawValue.Name, common.MapStr{})
+
+			oldName := k + "_" + rawValue.Name
+
+			value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters[k].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, rawValue.Value, m.oldRawValue[oldName])
+			m.oldRawValue[oldName] = rawValue.Value
+			if err != nil {
+				switch err {
+				case perfmon.PDH_CALC_NEGATIVE_VALUE:
+				case perfmon.PDH_CSTATUS_INVALID_DATA:
+					if m.executed {
+						return nil, err
+					} else {
+						continue
+					}
+				default:
+					return nil, err
+				}
+			}
+
+			event[rawValue.Name] = common.MapStr{
+				v.String(): *(*float64)(unsafe.Pointer(&value.LongValue)),
+			}
+		}
+
+	}
+	events = append(events, event)
+
+	if !m.executed {
+		m.executed = true
+	}
 
 	return events, nil
 }

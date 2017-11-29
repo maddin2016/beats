@@ -200,9 +200,9 @@ func PdhGetRawCounterArray(counter PdhCounterHandle) ([]RawCounterItem, error) {
 	return nil, nil
 }
 
-func PdhCalculateCounterFromRawValue(counter PdhCounterHandle, format PdhCounterFormat, rawValue1 *PdhRawCounter, rawValue2 *PdhRawCounter) (*PdhCounterValue, error) {
+func PdhCalculateCounterFromRawValue(counter PdhCounterHandle, format PdhCounterFormat, rawValue1 PdhRawCounter, rawValue2 PdhRawCounter) (*PdhCounterValue, error) {
 	var value PdhCounterValue
-	if err := _PdhCalculateCounterFromRawValue(counter, format, rawValue1, rawValue2, &value); err != nil {
+	if err := _PdhCalculateCounterFromRawValue(counter, format, &rawValue1, &rawValue2, &value); err != nil {
 		return nil, PdhErrno(err.(syscall.Errno))
 	}
 
