@@ -113,7 +113,11 @@ func (m *MetricSet) Read() ([]common.MapStr, error) {
 
 	counters := map[string]CounterType{
 		"\\LogicalDisk(*)\\Disk Write Bytes/sec": CounterTypeWriteBytes,
+		"\\LogicalDisk(*)\\Disk Writes/sec":      CounterTypeWriteCount,
+		"\\LogicalDisk(*)\\% Disk Write Time":    CounterTypeWriteTime,
 		"\\LogicalDisk(*)\\Disk Read Bytes/sec":  CounterTypeReadBytes,
+		"\\LogicalDisk(*)\\Disk Reads/sec":       CounterTypeReadCount,
+		"\\LogicalDisk(*)\\% Disk Read Time":     CounterTypeReadTime,
 	}
 
 	for k, _ := range counters {
@@ -128,7 +132,8 @@ func (m *MetricSet) Read() ([]common.MapStr, error) {
 	}
 
 	events := make([]common.MapStr, 0, len(counters))
-	event := common.MapStr{}
+
+	values := map[string]common.MapStr{}
 
 	for k, v := range counters {
 		actualRawValues, err := perfmon.PdhGetRawCounterArray(query.Counters[k].Handle)
@@ -136,19 +141,21 @@ func (m *MetricSet) Read() ([]common.MapStr, error) {
 			return nil, err
 		}
 
-		//rtn := make(map[string][]RawValue, len(actualRawValues))
-
 		for _, rawValue := range actualRawValues {
 			// Filter _total and Harddisk
 			if len(rawValue.Name) > 3 {
 				continue
 			}
 
-			event.Put(rawValue.Name, common.MapStr{})
+			if _, ok := values[rawValue.Name]; !ok {
+				values[rawValue.Name] = common.MapStr{}
+			}
+
+			actualValue := values[rawValue.Name]
 
 			oldName := k + "_" + rawValue.Name
 
-			value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters[k].Handle, perfmon.PdhFmtDouble|perfmon.PdhFmtNoCap100, rawValue.Value, m.oldRawValue[oldName])
+			value, err := perfmon.PdhCalculateCounterFromRawValue(query.Counters[k].Handle, perfmon.PdhFmtLong|perfmon.PdhFmtNoScale, rawValue.Value, m.oldRawValue[oldName])
 			m.oldRawValue[oldName] = rawValue.Value
 			if err != nil {
 				switch err {
@@ -164,13 +171,13 @@ func (m *MetricSet) Read() ([]common.MapStr, error) {
 				}
 			}
 
-			event[rawValue.Name] = common.MapStr{
-				v.String(): *(*float64)(unsafe.Pointer(&value.LongValue)),
-			}
+			actualValue.Put(rawValue.Name+"."+v.String(), *(*float64)(unsafe.Pointer(&value.LongValue)))
 		}
-
 	}
-	events = append(events, event)
+
+	for _, v := range values {
+		events = append(events, v)
+	}
 
 	if !m.executed {
 		m.executed = true
