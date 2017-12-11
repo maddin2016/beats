@@ -10,9 +10,7 @@ import "C"
 
 type DiskPerformance = C.DISK_PERFORMANCE
 
-type DiskManagementControlCode uint32
-
 const (
-	IoctlDiskPerformance    DiskManagementControlCode = C.IOCTL_DISK_PERFORMANCE
-	IoctlDiskPerformanceOff DiskManagementControlCode = C.IOCTL_DISK_PERFORMANCE_OFF
+	IoctlDiskPerformance    uint32 = C.IOCTL_DISK_PERFORMANCE
+	IoctlDiskPerformanceOff uint32 = C.IOCTL_DISK_PERFORMANCE_OFF
 )

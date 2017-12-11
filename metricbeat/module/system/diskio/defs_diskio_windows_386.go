@@ -19,9 +19,7 @@ type DiskPerformance = struct {
 	Pad_cgo_0           [4]byte
 }
 
-type DiskManagementControlCode uint32
-
 const (
-	IoctlDiskPerformance    DiskManagementControlCode = 0x70020
-	IoctlDiskPerformanceOff DiskManagementControlCode = 0x70060
+	IoctlDiskPerformance    uint32 = 0x70020
+	IoctlDiskPerformanceOff uint32 = 0x70060
 )

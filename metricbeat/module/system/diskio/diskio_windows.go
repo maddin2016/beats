@@ -5,6 +5,8 @@ package diskio
 import (
 	"bytes"
 	"fmt"
+	"syscall"
+	"unsafe"
 
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/metricbeat/mb"
@@ -96,24 +98,24 @@ func (m *MetricSet) Fetch() ([]common.MapStr, error) {
 	for _, v := range names {
 		nameBuffer.Reset()
 
-		if len(v)%2 != 0 {
-			v = v[:len(v)+1]
-		}
+		// Remove the \, because we want to open the volume and not the file system. For example C:\ becomes C:.
+		t := bytes.Trim(v, "\\x00")
 
-		if err := sys.UTF16ToUTF8Bytes(v[:], nameBuffer); err != nil {
+		if err := sys.UTF16ToUTF8Bytes(t[:], nameBuffer); err != nil {
 			return nil, err
 		}
-		println(nameBuffer.String())
-	}
 
-	for {
-		i := bytes.IndexByte(buffer, '\000'+'\000')
-		if i == -1 {
-			break
+		handle, err := syscall.CreateFile((*uint16)(unsafe.Pointer(&t[0])), syscall.GENERIC_READ, syscall.FILE_SHARE_READ, nil, syscall.OPEN_EXISTING, 0, 0)
+		if err != nil {
+			return nil, err
 		}
-		s := string(buffer[0:i])
-		println(s)
-		buffer = buffer[i+1:]
+
+		var diskBuffer = make([]byte, (int)(unsafe.Sizeof(DiskPerformance{})))
+		var bytesReturned uint32
+
+		if err = syscall.DeviceIoControl(handle, IoctlDiskPerformance, nil, 0, &diskBuffer[0], (uint32)(unsafe.Sizeof(DiskPerformance{})), &bytesReturned, nil); err != nil {
+			return nil, err
+		}
 	}
 
 	// for _, counters := range stats {
