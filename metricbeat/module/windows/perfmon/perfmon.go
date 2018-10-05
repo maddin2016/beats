@@ -31,17 +31,22 @@ import (
 
 // CounterConfig for perfmon counters.
 type CounterConfig struct {
-	InstanceLabel    string `config:"instance_label"    validate:"required"`
-	InstanceName     string `config:"instance_name"`
-	MeasurementLabel string `config:"measurement_label" validate:"required"`
-	Query            string `config:"query"             validate:"required"`
-	Format           string `config:"format"`
+	Object    string          `config:"object" validate:required`
+	Namespace string          `config:"namespace" validate:required`
+	Instance  []string        `config:"instance" validate:nonzero,required`
+	Counters  []CounterObject `config:"counters" validate:required"`
+}
+
+type CounterObject struct {
+	Label  string `config:"instance_label"    validate:"required"`
+	Name   string `config:"instance_name"`
+	Format string `config:"format"`
 }
 
 // Config for the windows perfmon metricset.
 type Config struct {
 	IgnoreNECounters bool            `config:"perfmon.ignore_non_existent_counters"`
-	CounterConfig    []CounterConfig `config:"perfmon.counters" validate:"required"`
+	CounterConfig    []CounterConfig `config:"perfmon.queries" validate:"required"`
 }
 
 func init() {
@@ -63,7 +68,7 @@ func New(base mb.BaseMetricSet) (mb.MetricSet, error) {
 		return nil, err
 	}
 
-	for _, value := range config.CounterConfig {
+	for _, value := range config.CounterConfig.Counters {
 		form := strings.ToLower(value.Format)
 		switch form {
 		case "":
